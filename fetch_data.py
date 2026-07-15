@@ -52,7 +52,7 @@ STATIONS = [
 
 # ── Fetch ───────────────────────────────────────────────────────────────────────
 
-def fetch_station(sid, day, month, year, retries=3):
+def fetch_station(sid, day, month, year, retries=4):
     url = (f'https://www.airqualityontario.com/aqhi/chart.php'
            f'?stationid={sid}&pol_code=124'
            f'&start_day={day}&start_month={month}&start_year={year}'
@@ -61,7 +61,7 @@ def fetch_station(sid, day, month, year, retries=3):
 
     for attempt in range(retries):
         try:
-            r = requests.get(url, timeout=20,
+            r = requests.get(url, timeout=30,
                              headers={'User-Agent': 'CCI-smoke-tracker/1.0'})
             tables = re.findall(r'<table[^>]*>(.*?)</table>', r.text, re.DOTALL)
             if not tables:
@@ -107,6 +107,7 @@ def fetch_all():
     no_data = []
     for sid, name in STATIONS:
         r = fetch_station(sid, day, month, year)
+        time.sleep(0.5)
         if r:
             results.append({'name': name, 'sid': sid, **r})
             print(f"  ✓ {name}: {r['mean']} µg/m³ ({r['hrs']}h)")
