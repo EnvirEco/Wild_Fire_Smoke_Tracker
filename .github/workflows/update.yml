@@ -1,0 +1,35 @@
+name: Update smoke tracker data
+
+on:
+  schedule:
+    - cron: '5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch AQO data and update index.html
+        run: python fetch_data.py
+
+      - name: Commit and push if data changed
+        run: |
+          git config user.name  "smoke-tracker-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git diff --quiet index.html || (
+            git add index.html &&
+            git commit -m "Update smoke data $(date -u '+%Y-%m-%d %H:%M UTC')" &&
+            git push
+          )
