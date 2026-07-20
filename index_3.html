@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ontario wildfire smoke tracker</title>
+<style>
+:root{
+  --ink:#242422;
+  --muted:#6f706b;
+  --paper:#f5f3ee;
+  --white:#ffffff;
+  --rule:#dedbd3;
+  --red:#a9282a;
+  --red-soft:#f5e7e5;
+  --amber:#a35e12;
+  --amber-soft:#f5ead8;
+  --green:#52755b;
+  --green-soft:#e8efe9;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--paper);
+  color:var(--ink);
+  font-size:14px;
+  line-height:1.45;
+}
+.shell{max-width:1040px;margin:0 auto;padding:30px 24px 36px;}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--red);margin-bottom:8px;}
+h1{font-size:34px;line-height:1.05;letter-spacing:-.03em;font-weight:760;max-width:760px;}
+.deck{font-size:16px;line-height:1.5;color:#4f504c;max-width:760px;margin-top:12px;}
+.meta{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:18px;padding-top:14px;border-top:1px solid var(--rule);font-size:12px;color:var(--muted);}
+.hero{margin-top:28px;background:var(--white);border-top:5px solid var(--red);padding:28px 30px 26px;display:grid;grid-template-columns:1.35fr .65fr;gap:30px;align-items:end;}
+.kicker{font-size:13px;font-weight:700;color:var(--red);margin-bottom:7px;}
+.hero h2{font-size:30px;line-height:1.1;letter-spacing:-.025em;max-width:640px;}
+.hero p{margin-top:12px;color:#555650;font-size:14px;max-width:650px;}
+.hero-number{text-align:right;}
+.big{font-size:58px;line-height:.95;letter-spacing:-.045em;font-weight:760;color:var(--red);}
+.big-label{font-size:13px;color:var(--muted);margin-top:7px;}
+.delta{font-size:12px;color:var(--muted);margin-top:6px;}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);background:var(--white);border-top:1px solid var(--rule);margin-bottom:24px;}
+.metric{padding:18px 20px 20px;border-right:1px solid var(--rule);}
+.metric:last-child{border-right:none;}
+.metric-label{font-size:12px;color:var(--muted);margin-bottom:8px;}
+.metric-value{font-size:25px;line-height:1.1;font-weight:720;letter-spacing:-.025em;}
+.metric-note{font-size:12px;color:var(--muted);margin-top:5px;}
+.section{background:var(--white);padding:26px 28px;margin-bottom:24px;}
+.section-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-end;padding-bottom:14px;border-bottom:1px solid var(--rule);}
+.section h3{font-size:22px;line-height:1.15;letter-spacing:-.02em;}
+.section-intro{font-size:13px;color:var(--muted);max-width:520px;margin-top:6px;}
+.section-meta{font-size:12px;color:var(--muted);white-space:nowrap;}
+.health-total{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:22px 0 18px;border-bottom:1px solid var(--rule);}
+.health-total .figure{font-size:38px;line-height:1;font-weight:750;letter-spacing:-.035em;}
+.health-total .figure.cost{color:var(--red);}
+.health-total .label{font-size:12px;color:var(--muted);margin-top:6px;}
+.health-row{display:grid;grid-template-columns:1fr 100px 100px;gap:14px;align-items:center;padding:10px 0;border-bottom:1px solid #efede7;}
+.health-row:last-child{border-bottom:none;}
+.health-name{color:#3e3f3b;}
+.health-events,.health-cost{text-align:right;font-variant-numeric:tabular-nums;}
+.health-cost{color:var(--red);font-weight:650;}
+.table-head{font-size:11px;color:var(--muted);font-weight:700;}
+.note{font-size:12px;line-height:1.55;color:var(--muted);margin-top:14px;}
+.station-list{margin-top:14px;}
+.station-row{display:grid;grid-template-columns:150px 1fr 64px 72px;gap:14px;align-items:center;padding:8px 0;border-bottom:1px solid #efede7;}
+.station-row:last-child{border-bottom:none;}
+.station-name{font-size:13px;}
+.bar-track{height:8px;background:#efede7;overflow:hidden;}
+.bar{height:100%;background:var(--red);}
+.station-value{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;}
+.station-hours{text-align:right;font-size:11px;color:var(--muted);}
+.legend{display:flex;flex-wrap:wrap;gap:12px 18px;margin-top:14px;font-size:11px;color:var(--muted);}
+.legend span::before{content:"";display:inline-block;width:8px;height:8px;margin-right:6px;vertical-align:0;border-radius:50%;background:var(--green);}
+.legend .moderate::before{background:#d09a38;}
+.legend .high::before{background:#c96922;}
+.legend .severe::before{background:var(--red);}
+.alert-banner{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:5px 11px 5px 9px;border-radius:4px;margin-bottom:10px;}
+.alert-severe{background:var(--red-soft);color:var(--red);border-left:3px solid var(--red);}
+.alert-high{background:var(--amber-soft);color:var(--amber);border-left:3px solid var(--amber);}
+.alert-moderate{background:#fef3cd;color:#7a5a0a;border-left:3px solid #d09a38;}
+.alert-ok{background:var(--green-soft);color:var(--green);border-left:3px solid var(--green);}
+.alert-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block;}
+.alert-severe .alert-dot{background:var(--red);}
+.alert-high .alert-dot{background:var(--amber);}
+.alert-moderate .alert-dot{background:#d09a38;}
+.alert-ok .alert-dot{background:var(--green);}
+.sv-pill{display:inline-block;font-size:12px;font-weight:700;border-radius:4px;padding:2px 8px;font-variant-numeric:tabular-nums;}
+.sv-ok{background:#e8efe9;color:#52755b;}
+.sv-mod{background:#fef3cd;color:#a35e12;}
+.sv-high{background:#fde8d4;color:#c96922;}
+.sv-sev{background:#f5e7e5;color:#a9282a;}
+.method{padding:20px 0 0;border-top:1px solid var(--rule);font-size:11px;line-height:1.6;color:var(--muted);}
+.method strong{color:#4a4b46;}
+a{color:inherit;}
+@media(max-width:760px){
+  .shell{padding:20px 14px 30px;}
+  h1{font-size:29px;}
+  .hero{grid-template-columns:1fr;padding:24px 22px;}
+  .hero-number{text-align:left;}
+  .big{font-size:48px;}
+  .metrics{grid-template-columns:1fr 1fr;}
+  .metric:nth-child(2){border-right:none;}
+  .metric:nth-child(-n+2){border-bottom:1px solid var(--rule);}
+  .health-total{grid-template-columns:1fr;}
+  .station-row{grid-template-columns:112px 1fr 55px;}
+  .station-hours{display:none;}
+}
+
+.toggle-wrap{margin:0 0 12px;}
+.toggle{display:inline-flex;border:1px solid #ddd;border-radius:8px;overflow:hidden;}
+.toggle-btn{padding:6px 18px;font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:#888;border:none;letter-spacing:.03em;transition:background .15s,color .15s;}
+.toggle-btn.active{background:#2C2C2A;color:#fff;}
+.toggle-btn:first-child{border-right:1px solid #ddd;}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+      <h1>Ontario wildfire smoke tracker</h1>
+    <div class="deck">Tracking current PM₂.₅ exposure across Ontario and the estimated health consequences of wildfire smoke.</div>
+    <div class="meta">
+      <span>July 20, 2026</span>
+      <span>Updated 7:08 a.m. EDT</span>
+      <span>38 of 43 stations reporting</span>
+      <span>Dave Sawyer</span>
+    </div>
+    <div style="font-size:12px;color:#6f706b;margin-top:10px;">For more detail on methodology see: <a href="https://440megatonnes.ca/insight/health-impacts-canada-new-smoky-summer-reality/" style="color:#a9282a;text-decoration:underline;text-underline-offset:2px;">The health impacts of Canada's new, smoky summer reality</a></div>
+  </header>
+
+  <div class="toggle-wrap">
+    <div class="toggle">
+      <button class="toggle-btn active" id="btn-on" onclick="setProvince('ON')">Ontario</button>
+      <button class="toggle-btn" id="btn-ab" onclick="setProvince('AB')">Alberta</button>
+    </div>
+  </div>
+  <main id="app"></main>
+
+  <footer class="method">
+    <strong>Sources and method:</strong> Air Quality Ontario PM₂.₅ station data, pollutant code 124. Source data are automatically polled by Air Quality Ontario and are preliminary until final verification. The Ontario reading is the simple average across reporting stations. Health impacts draw on the CCI wildfire health model and AQBAT v3.0, using a clean air baseline of 6 µg/m³ and values in 2023 Canadian dollars. CCI wildfire health model, 2014 to 2024. <a href="https://doi.org/10.1029/2025GH001565">Matz et al. 2026</a>.
+  </footer>
+</div>
+
+<script>
+const DATA = {"date": "2026-07-20", "time": "7:08 a.m. EDT", "n_stations": 38, "stations": [{"name": "Barrie", "sid": "47045", "mean": 4.6, "max": 5.0, "hrs": 7}, {"name": "Belleville", "sid": "54012", "mean": 5.0, "max": 5.0, "hrs": 7}, {"name": "Brampton", "sid": "46090", "mean": 4.4, "max": 5.0, "hrs": 7}, {"name": "Brantford", "sid": "21005", "mean": 12.6, "max": 15.0, "hrs": 7}, {"name": "Burlington", "sid": "44008", "mean": 4.3, "max": 5.0, "hrs": 7}, {"name": "Chatham", "sid": "13001", "mean": 19.3, "max": 21.0, "hrs": 7}, {"name": "Cornwall", "sid": "56051", "mean": 6.0, "max": 6.0, "hrs": 7}, {"name": "Dorset", "sid": "49010", "mean": 4.3, "max": 5.0, "hrs": 6}, {"name": "Grand Bend", "sid": "15020", "mean": 11.3, "max": 12.0, "hrs": 7}, {"name": "Guelph", "sid": "28028", "mean": 6.0, "max": 7.0, "hrs": 7}, {"name": "Hamilton Downtown", "sid": "29000", "mean": 5.7, "max": 6.0, "hrs": 7}, {"name": "Hamilton Mountain", "sid": "29214", "mean": 5.4, "max": 6.0, "hrs": 7}, {"name": "Hamilton West", "sid": "29118", "mean": 6.7, "max": 8.0, "hrs": 7}, {"name": "Kingston", "sid": "52023", "mean": 5.0, "max": 5.0, "hrs": 7}, {"name": "Kitchener", "sid": "26060", "mean": 6.6, "max": 7.0, "hrs": 7}, {"name": "London", "sid": "15026", "mean": 22.9, "max": 25.0, "hrs": 7}, {"name": "Milton", "sid": "44029", "mean": 4.6, "max": 6.0, "hrs": 7}, {"name": "Mississauga", "sid": "46108", "mean": 4.0, "max": 4.0, "hrs": 7}, {"name": "Newmarket", "sid": "48006", "mean": 4.4, "max": 5.0, "hrs": 7}, {"name": "North Bay", "sid": "75010", "mean": 5.0, "max": 5.0, "hrs": 7}, {"name": "Oakville", "sid": "44017", "mean": 4.1, "max": 5.0, "hrs": 7}, {"name": "Oshawa", "sid": "45027", "mean": 4.3, "max": 5.0, "hrs": 7}, {"name": "Ottawa Downtown", "sid": "51001", "mean": 5.9, "max": 6.0, "hrs": 7}, {"name": "Parry Sound", "sid": "49005", "mean": 4.0, "max": 4.0, "hrs": 7}, {"name": "Peterborough", "sid": "59006", "mean": 4.0, "max": 4.0, "hrs": 7}, {"name": "Port Stanley", "sid": "16015", "mean": 23.4, "max": 29.0, "hrs": 7}, {"name": "Sarnia", "sid": "14111", "mean": 20.0, "max": 21.0, "hrs": 7}, {"name": "Sault Ste. Marie", "sid": "71078", "mean": 13.7, "max": 17.0, "hrs": 7}, {"name": "St. Catharines", "sid": "27067", "mean": 13.4, "max": 18.0, "hrs": 7}, {"name": "Sudbury", "sid": "77233", "mean": 5.0, "max": 5.0, "hrs": 7}, {"name": "Thunder Bay", "sid": "63200", "mean": 81.4, "max": 110.0, "hrs": 7}, {"name": "Tiverton", "sid": "18007", "mean": 5.3, "max": 6.0, "hrs": 7}, {"name": "Toronto Downtown", "sid": "31129", "mean": 4.3, "max": 5.0, "hrs": 7}, {"name": "Toronto East", "sid": "33003", "mean": 5.0, "max": 6.0, "hrs": 7}, {"name": "Toronto North", "sid": "34021", "mean": 4.3, "max": 5.0, "hrs": 7}, {"name": "Toronto West", "sid": "35125", "mean": 4.4, "max": 5.0, "hrs": 7}, {"name": "Windsor Downtown", "sid": "12008", "mean": 23.0, "max": 24.0, "hrs": 7}, {"name": "Windsor West", "sid": "12016", "mean": 24.0, "max": 25.0, "hrs": 7}]};
+const DATA_AB = {"date": "2026-07-20", "time": "5:58 a.m. MDT", "n_stations": 56, "stations": [{"name": "Grimshaw", "sid": "234", "mean": 181.5, "max": 289.4, "hrs": 6}, {"name": "Fort Hills", "sid": "225", "mean": 151.9, "max": 286.1, "hrs": 6}, {"name": "Buffalo Viewpoint", "sid": "168", "mean": 144.9, "max": 266.0, "hrs": 6}, {"name": "Fort McKay South", "sid": "174", "mean": 131.3, "max": 251.4, "hrs": 6}, {"name": "Fort Chipewyan", "sid": "171", "mean": 130.8, "max": 196.5, "hrs": 6}, {"name": "Ells River", "sid": "230", "mean": 126.4, "max": 221.1, "hrs": 6}, {"name": "Fort McKay", "sid": "166", "mean": 120.3, "max": 233.8, "hrs": 6}, {"name": "Anzac", "sid": "183", "mean": 110.4, "max": 167.6, "hrs": 6}, {"name": "Fort McMurray Athabasca Valley", "sid": "165", "mean": 109.4, "max": 218.2, "hrs": 6}, {"name": "High Level (Airpointer)", "sid": "243", "mean": 109.3, "max": 124.0, "hrs": 4}, {"name": "Smoky Heights", "sid": "156", "mean": 103.4, "max": 115.9, "hrs": 6}, {"name": "Fort McMurray Patricia McInnes", "sid": "170", "mean": 102.2, "max": 192.1, "hrs": 6}, {"name": "Wapasu", "sid": "197", "mean": 98.8, "max": 157.1, "hrs": 6}, {"name": "Surmont 2", "sid": "228", "mean": 97.5, "max": 175.6, "hrs": 6}, {"name": "Happy Valley", "sid": "248", "mean": 93.9, "max": 98.4, "hrs": 6}, {"name": "Grande Prairie - Henry Pirker", "sid": "155", "mean": 90.0, "max": 110.1, "hrs": 6}, {"name": "Janvier", "sid": "200", "mean": 62.6, "max": 145.9, "hrs": 6}, {"name": "Beaverlodge", "sid": "157", "mean": 57.6, "max": 97.3, "hrs": 6}, {"name": "Fox Creek", "sid": "242", "mean": 49.6, "max": 106.3, "hrs": 6}, {"name": "Conklin Community", "sid": "193", "mean": 32.0, "max": 93.8, "hrs": 6}, {"name": "Edmonton McCauley", "sid": "216", "mean": 23.0, "max": 40.7, "hrs": 6}, {"name": "Genesee", "sid": "162", "mean": 19.3, "max": 21.4, "hrs": 6}, {"name": "Raymond (Airpointer)", "sid": "254", "mean": 19.1, "max": 25.7, "hrs": 6}, {"name": "Lethbridge", "sid": "144", "mean": 18.7, "max": 34.6, "hrs": 6}, {"name": "Cold Lake South", "sid": "152", "mean": 16.8, "max": 18.7, "hrs": 6}, {"name": "O\u2019Morrow Station 1", "sid": "245", "mean": 16.2, "max": 37.5, "hrs": 6}, {"name": "Tamarack", "sid": "221", "mean": 16.1, "max": 17.6, "hrs": 6}, {"name": "Red Deer - Riverside", "sid": "175", "mean": 14.8, "max": 21.5, "hrs": 6}, {"name": "Cochrane Sensor", "sid": "268", "mean": 14.7, "max": 17.1, "hrs": 6}, {"name": "Medicine Hat - Crescent Heights", "sid": "154", "mean": 14.7, "max": 21.3, "hrs": 6}, {"name": "Calgary Varsity", "sid": "143", "mean": 13.5, "max": 14.4, "hrs": 6}, {"name": "Calgary Southeast", "sid": "142", "mean": 13.4, "max": 14.6, "hrs": 6}, {"name": "Hinton-Drinnan", "sid": "161", "mean": 13.1, "max": 32.5, "hrs": 6}, {"name": "Calgary Central Inglewood", "sid": "141", "mean": 13.0, "max": 14.9, "hrs": 6}, {"name": "Sherwood Park", "sid": "186", "mean": 12.5, "max": 20.2, "hrs": 6}, {"name": "Enoch", "sid": "255", "mean": 12.2, "max": 15.3, "hrs": 6}, {"name": "Southfort", "sid": "263", "mean": 12.0, "max": 13.7, "hrs": 6}, {"name": "Bruderheim", "sid": "177", "mean": 11.8, "max": 14.0, "hrs": 5}, {"name": "Leduc Sensor", "sid": "244", "mean": 11.8, "max": 15.4, "hrs": 6}, {"name": "Edmonton East", "sid": "139", "mean": 11.1, "max": 13.3, "hrs": 6}, {"name": "St. Lina", "sid": "182", "mean": 10.8, "max": 11.4, "hrs": 6}, {"name": "Brooks Meadowplace", "sid": "250", "mean": 10.7, "max": 12.4, "hrs": 6}, {"name": "Edmonton Lendrum", "sid": "140", "mean": 10.7, "max": 13.6, "hrs": 6}, {"name": "St. Albert", "sid": "191", "mean": 10.6, "max": 12.9, "hrs": 6}, {"name": "Edson", "sid": "179", "mean": 10.0, "max": 11.1, "hrs": 6}, {"name": "Drayton Valley", "sid": "178", "mean": 9.8, "max": 12.6, "hrs": 6}, {"name": "Airdrie", "sid": "204", "mean": 9.5, "max": 11.2, "hrs": 6}, {"name": "Redwater", "sid": "205", "mean": 9.4, "max": 10.1, "hrs": 5}, {"name": "Lamont", "sid": "219", "mean": 8.8, "max": 10.2, "hrs": 6}, {"name": "Ardrossan", "sid": "188", "mean": 8.6, "max": 10.0, "hrs": 6}, {"name": "Elk Island", "sid": "146", "mean": 8.6, "max": 9.9, "hrs": 5}, {"name": "Gibbons", "sid": "189", "mean": 8.6, "max": 9.9, "hrs": 6}, {"name": "Hanna Library (Airpointer)", "sid": "253", "mean": 8.6, "max": 13.8, "hrs": 6}, {"name": "Steeper", "sid": "181", "mean": 8.5, "max": 9.0, "hrs": 6}, {"name": "Hinton-Hillcrest", "sid": "239", "mean": 7.3, "max": 16.3, "hrs": 5}, {"name": "Jasper", "sid": "251", "mean": 4.2, "max": 5.0, "hrs": 6}]};
+
+const SCALARS=[
+  {name:'Restricted activity days', epm:251.10,cpe:96},
+  {name:'Respiratory symptom days', epm:466.41,cpe:26},
+  {name:'Asthma symptom days',epm:187.92,cpe:37},
+  {name:'Respiratory ER visits',epm:0.0426,cpe:4000},
+  {name:'Cardiac ER visits',epm:0.0171,cpe:8800}
+];
+const BASELINE=6;
+const PROV={
+  ON:{pop_M:15.1,label:'Ontario', tz:'EDT',n_total:43},
+  AB:{pop_M:4.9, label:'Alberta', tz:'MDT',n_total:56}
+};
+let currentProv='ON';
+function setProvince(prov){
+  currentProv=prov;
+  document.getElementById('btn-on').className='toggle-btn'+(prov==='ON'?' active':'');
+  document.getElementById('btn-ab').className='toggle-btn'+(prov==='AB'?' active':'');
+  renderForProvince(prov);
+};
+
+function fmt(n){if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return Math.round(n/1e3)+'K';return Math.round(n).toString();}
+function fmtM(d){if(d>=1e6)return'$'+(d/1e6).toFixed(1)+'M';return'$'+Math.round(d/1e3)+'K';}
+function fmtPM(v){return v.toFixed(1)+' µg/m³';}
+function barTone(v){return v>=50?'var(--red)':v>=25?'#c96922':v>=10?'#d09a38':'var(--green)';}
+function pillCls(v){return v>=50?'sv-sev':v>=25?'sv-high':v>=10?'sv-mod':'sv-ok';}
+function alertCls(v){return v>=50?'alert-severe':v>=25?'alert-high':v>=10?'alert-moderate':'alert-ok';}
+function alertLabel(v){return v>=50?'Severe smoke event':v>=25?'High smoke levels':v>=10?'Elevated smoke':'Clean air';}
+
+function renderDashboard(data){
+const st=data.stations;
+const means=st.map(d=>d.mean);
+const avg=+(means.reduce((a,b)=>a+b,0)/means.length).toFixed(1);
+const highestMean=st.reduce((a,b)=>a.mean>b.mean?a:b);
+const highestHour=st.reduce((a,b)=>a.max>b.max?a:b);
+const above25=st.filter(d=>d.mean>=25).length;
+const above50=st.filter(d=>d.mean>=50).length;
+const multiple=(avg/BASELINE).toFixed(1);
+const delta=Math.max(0,avg-BASELINE);
+
+let impactRows='',totalEvents=0,totalCost=0;
+SCALARS.forEach(s=>{
+  const events=s.epm*PROV[currentProv].pop_M*delta;
+  const cost=events*s.cpe;
+  totalEvents+=events;
+  totalCost+=cost;
+  impactRows+=`<div class="health-row">
+    <div class="health-name">${s.name}</div>
+    <div class="health-events">${fmt(events)}</div>
+    <div class="health-cost">${fmtM(cost)}</div>
+  </div>`;
+});
+
+const sorted=[...st].sort((a,b)=>b.mean-a.mean);
+const maxScale=Math.max(...sorted.map(d=>d.mean));
+const stationRows=sorted.map(d=>{
+  const pc=pillCls(d.mean);
+  return `<div class="station-row">
+  <div class="station-name">${d.name}${d.hrs<8?'*':''}</div>
+  <div class="bar-track"><div class="bar" style="width:${Math.max(2,d.mean/maxScale*100)}%;background:${barTone(d.mean)}"></div></div>
+  <div><span class="sv-pill ${pc}">${d.mean.toFixed(0)}</span></div>
+  <div class="station-hours">${d.hrs}h</div>
+</div>`;}).join('');
+
+document.getElementById('app').innerHTML=`
+  <section class="hero">
+    <div>
+      <div class="alert-banner ${alertCls(avg)}"><span class="alert-dot"></span>${alertLabel(avg)}</div>
+      <h2>Smoke levels across reporting stations are ${multiple} times the clean air baseline</h2>
+      <p>The average PM₂.₅ reading across ${PROV[currentProv].label} stations is ${fmtPM(avg)}, compared with a clean air baseline of ${BASELINE} µg/m³.</p>
+    </div>
+    <div class="hero-number">
+      <div class="big">${multiple}×</div>
+      <div class="big-label">the clean air baseline</div>
+      <div class="delta">${delta.toFixed(1)} µg/m³ above baseline</div>
+    </div>
+  </section>
+
+  <section class="metrics">
+    <div class="metric">
+      <div class="metric-label">Average across stations</div>
+      <div class="metric-value">${fmtPM(avg)}</div>
+      <div class="metric-note">31 stations reporting</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Stations above 25 µg/m³</div>
+      <div class="metric-value">${above25} of ${st.length}</div>
+      <div class="metric-note">${above50} at or above 50 µg/m³</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Highest station average</div>
+      <div class="metric-value">${fmtPM(highestMean.mean)}</div>
+      <div class="metric-note">${highestMean.name}</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Highest hourly reading</div>
+      <div class="metric-value">${highestHour.max.toFixed(0)} µg/m³</div>
+      <div class="metric-note">${highestHour.name}</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div>
+        <h3>Estimated health impacts today</h3>
+        <div class="section-intro">Estimated health events and costs associated with exposure above the 6 µg/m³ clean air baseline.</div>
+      </div>
+      <div class="section-meta">Events and 2023 CAD</div>
+    </div>
+    <div class="health-total">
+      <div>
+        <div class="figure">${fmt(totalEvents)}</div>
+        <div class="label">Estimated health events</div>
+      </div>
+      <div>
+        <div class="figure cost">${fmtM(totalCost)}</div>
+        <div class="label">Estimated health costs</div>
+      </div>
+    </div>
+    <div class="health-row table-head">
+      <div>Outcome</div><div style="text-align:right">Events</div><div style="text-align:right">Cost</div>
+    </div>
+    ${impactRows}
+    <div class="note">These estimates use the reduced form of the CCI wildfire health model. They draw on the broader underlying health evidence base and are presented here as a current day estimate.</div>
+    <div class="note" style="margin-top:8px;">Costs include willingness-to-pay values for restricted and symptomatic days, and medical cost estimates for emergency room visits. Unit values from Health Canada AQBAT v3.0 (2023 CAD). Costs are preliminary estimates based on population exposure above the 6 µg/m³ clean air baseline.</div>
+    <div class="note" style="margin-top:6px;color:#9a9b96;">Restricted activity days ($96/day) · Respiratory symptom days ($26/day) · Asthma symptom days ($37/day) · Respiratory ER visits ($4,000) · Cardiac ER visits ($8,800)</div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div>
+        <h3>Where smoke exposure is highest</h3>
+        <div class="section-intro">Average PM₂.₅ readings by station, ranked from highest to lowest.</div>
+      </div>
+      <div class="section-meta">µg/m³</div>
+    </div>
+    <div class="station-list">${stationRows}</div>
+    <div class="legend"><span>Below 10</span><span class="moderate">10 to 25</span><span class="high">25 to 50</span><span class="severe">50 and above</span></div>
+    <div class="note">* Fewer than 8 hours of data. Handle with care — daily mean may not be representative.</div>
+  </section>
+`;
+}
+
+// Initial render + title update
+function renderForProvince(prov){
+  const d = prov==='ON' ? DATA : DATA_AB;
+  const cfg = PROV[prov];
+  document.title = cfg.label + ' Wildfire Smoke Tracker';
+  renderDashboard(d);
+}
+
+renderForProvince('ON');
+</script>
+</body>
+</html>
