@@ -1,31 +1,33 @@
 """
 fetch_data.py
 =============
-Fetches current-day PM2.5 data from Air Quality Ontario for all 43 stations,
-calculates health impacts using CCI AQBAT v3.0 scalars, and updates
-index.html with fresh data.
+Fetches current-day PM2.5 from:
+  - Air Quality Ontario (AQO) — 43 stations, hourly scrape
+  - BC Ministry of Environment — single CSV, 60+ stations, hourly
+  - Alberta Environment OData API — 56 stations, hourly
+
+Updates index.html with DATA, DATA_AB, DATA_BC objects and meta fields.
 
 Run manually:  python fetch_data.py
 Run by GitHub Actions: automatically on schedule
-
-Outputs: updates DATA, meta date/time/station count in index.html
 """
 
-import re
-import sys
-import json
-import time
+import re, sys, json, time, random, io
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-BASELINE_UGM3 = 6.0    # clean air baseline µg/m³
-ON_POP_M      = 15.1   # Ontario population millions
-MIN_HOURS     = 6      # minimum hours for a valid daily mean
-MAX_PM25      = 999    # sanity cap
+BASELINE  = 6.0
+MIN_HOURS = 6
+MAX_PM25  = 999
+RETRIES   = 4
+TIMEOUT   = 30
+DELAY_MIN = 1.5
+DELAY_MAX = 3.5
+RETRY_WAIT = 90
 
-STATIONS = [
+ON_STATIONS = [
     ('47045','Barrie'),         ('54012','Belleville'),
     ('46090','Brampton'),       ('21005','Brantford'),
     ('44008','Burlington'),     ('13001','Chatham'),
@@ -50,152 +52,264 @@ STATIONS = [
     ('12016','Windsor West'),
 ]
 
-# ── Fetch ───────────────────────────────────────────────────────────────────────
+BC_EXCLUDE = ['Mine','Smelter','Mill','Pulp','Kitimat','Alcan','Teck','Cominco']
 
-def fetch_station(sid, day, month, year, retries=4):
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0',
+]
+
+# ── Ontario ─────────────────────────────────────────────────────────────────────
+
+def fetch_on_station(sid, day, month, year):
     url = (f'https://www.airqualityontario.com/aqhi/chart.php'
            f'?stationid={sid}&pol_code=124'
-           f'&start_day={day}&start_month={month}&start_year={year}'
-           f'&showType=table')
+           f'&start_day={day}&start_month={month}&start_year={year}&showType=table')
     ds = f"{year}-{month:02d}-{day:02d}"
-
-    for attempt in range(retries):
+    for attempt in range(RETRIES):
         try:
-            r = requests.get(url, timeout=30,
-                             headers={'User-Agent': 'CCI-smoke-tracker/1.0'})
+            r = requests.get(url, timeout=TIMEOUT, headers={
+                'User-Agent': random.choice(USER_AGENTS),
+                'Accept': 'text/html,application/xhtml+xml',
+                'Accept-Language': 'en-CA,en;q=0.9',
+                'Referer': 'https://www.airqualityontario.com/',
+            })
             tables = re.findall(r'<table[^>]*>(.*?)</table>', r.text, re.DOTALL)
             if not tables:
-                time.sleep(1 + attempt)
-                continue
+                time.sleep(random.uniform(1,2)); continue
             rows = re.findall(r'<tr[^>]*>(.*?)</tr>', tables[0], re.DOTALL)
             for row in rows[1:]:
                 cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', row, re.DOTALL)
-                cleaned = [re.sub(r'<[^>]+>', ' ', c).strip() for c in cells]
+                cleaned = [re.sub(r'<[^>]+>',' ',c).strip() for c in cells]
                 if cleaned and ds in cleaned[0]:
-                    nums = []
-                    for v in cleaned[1:]:
-                        try:
-                            f = float(v)
-                            if 0 <= f <= MAX_PM25:
-                                nums.append(f)
-                        except ValueError:
-                            pass
+                    nums = [float(v) for v in cleaned[1:]
+                            if v.replace('.','').isdigit() and 0<=float(v)<=MAX_PM25]
                     if len(nums) >= MIN_HOURS:
-                        return {
-                            'mean': round(sum(nums) / len(nums), 1),
-                            'max':  round(max(nums), 1),
-                            'hrs':  len(nums),
-                        }
-        except Exception:
-            if attempt < retries - 1:
-                time.sleep(2 ** attempt)
+                        return {'mean':round(sum(nums)/len(nums),1),
+                                'max':round(max(nums),1),'hrs':len(nums)}
+        except:
+            if attempt < RETRIES-1: time.sleep(2**attempt)
     return None
 
 
-def fetch_all():
-    # Use Eastern time for the date
-    eastern = timezone(timedelta(hours=-4))  # EDT
-    now_et  = datetime.now(eastern)
-    day, month, year = now_et.day, now_et.month, now_et.year
-    date_str = now_et.strftime('%Y-%m-%d')
-    ampm = 'a.m.' if now_et.hour < 12 else 'p.m.'
-    time_str = now_et.strftime('%-I:%M') + ' ' + ampm + ' EDT'
+def fetch_ontario():
+    edt = timezone(timedelta(hours=-4))
+    now = datetime.now(edt)
+    day, month, year = now.day, now.month, now.year
+    date_str = now.strftime('%Y-%m-%d')
+    ampm = 'a.m.' if now.hour < 12 else 'p.m.'
+    time_str = now.strftime('%-I:%M') + ' ' + ampm + ' EDT'
 
-    print(f"Fetching {date_str} ({time_str})...")
+    print(f"\nOntario: fetching {len(ON_STATIONS)} stations...")
+    results, failed = {}, []
 
-    results = []
-    no_data = []
-    for sid, name in STATIONS:
-        r = fetch_station(sid, day, month, year)
-        time.sleep(0.5)
+    for sid, name in ON_STATIONS:
+        r = fetch_on_station(sid, day, month, year)
         if r:
-            results.append({'name': name, 'sid': sid, **r})
-            print(f"  ✓ {name}: {r['mean']} µg/m³ ({r['hrs']}h)")
+            results[sid] = {'name':name,'sid':sid,**r}
+            print(f"  ✓ {name}: {r['mean']} µg/m³")
         else:
-            no_data.append(name)
+            failed.append((sid,name))
             print(f"  – {name}: no data")
+        time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
 
-    print(f"\n{len(results)}/43 stations reporting")
-    if no_data:
-        print(f"No data: {', '.join(no_data)}")
+    if failed:
+        print(f"\n  Retrying {len(failed)} stations after {RETRY_WAIT}s...")
+        time.sleep(RETRY_WAIT)
+        for sid, name in failed:
+            r = fetch_on_station(sid, day, month, year)
+            if r:
+                results[sid] = {'name':name,'sid':sid,**r}
+                print(f"  ✓ {name}: {r['mean']} µg/m³ [retry]")
+            time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
 
-    return {
-        'date':      date_str,
-        'time':      time_str,
-        'n_stations': len(results),
-        'stations':  results,
-    }
+    stations = sorted(results.values(), key=lambda x: x['name'])
+    print(f"  Ontario: {len(stations)}/43 stations")
+    return {'date':date_str,'time':time_str,
+            'n_stations':len(stations),'stations':stations}
 
 
-# ── Update index.html ───────────────────────────────────────────────────────────
+# ── BC ───────────────────────────────────────────────────────────────────────────
 
-def update_html(data):
+def fetch_bc():
+    pdt = timezone(timedelta(hours=-7))
+    now = datetime.now(pdt)
+    date_str = now.strftime('%Y-%m-%d')
+    ampm = 'a.m.' if now.hour < 12 else 'p.m.'
+    time_str = now.strftime('%-I:%M') + ' ' + ampm + ' PDT'
+    today = date.fromisoformat(date_str)
+
+    print(f"\nBC: fetching CSV from BC ENV...")
+    url = ('https://www.env.gov.bc.ca/epd/bcairquality/aqo/csv/'
+           'Hourly_Raw_Air_Data/Air_Quality/PM25.csv')
     try:
-        with open('index.html', 'r', encoding='utf-8') as f:
+        r = requests.get(url, timeout=60)
+        r.raise_for_status()
+    except Exception as e:
+        print(f"  BC fetch failed: {e}")
+        return None
+
+    import pandas as pd
+    df = pd.read_csv(io.StringIO(r.text), low_memory=False)
+    df['datetime'] = pd.to_datetime(df['DATE_PST'], errors='coerce')
+    df['date_only'] = df['datetime'].dt.date
+    today_df = df[df['date_only'] == today].copy()
+    today_df['RAW_VALUE'] = pd.to_numeric(today_df['RAW_VALUE'], errors='coerce')
+    today_df = today_df[today_df['RAW_VALUE'].between(0, MAX_PM25)]
+
+    # Exclude industrial point sources
+    mask = today_df['STATION_NAME'].str.contains(
+        '|'.join(BC_EXCLUDE), case=False, na=False)
+    today_df = today_df[~mask]
+
+    daily = (today_df.groupby(['STATION_NAME','EMS_ID'])
+             .agg(mean=('RAW_VALUE','mean'),
+                  max=('RAW_VALUE','max'),
+                  hrs=('RAW_VALUE','count'))
+             .reset_index())
+    daily = daily[daily['hrs'] >= MIN_HOURS]
+
+    stations = []
+    for _, row in daily.sort_values('mean', ascending=False).iterrows():
+        stations.append({'name': str(row['STATION_NAME']),
+                         'sid':  str(row['EMS_ID']),
+                         'mean': round(float(row['mean']),1),
+                         'max':  round(float(row['max']),1),
+                         'hrs':  int(row['hrs'])})
+
+    print(f"  BC: {len(stations)} stations reporting")
+    return {'date':date_str,'time':time_str,
+            'n_stations':len(stations),'stations':stations}
+
+
+# ── Alberta ──────────────────────────────────────────────────────────────────────
+
+def fetch_alberta():
+    mdt = timezone(timedelta(hours=-6))
+    now = datetime.now(mdt)
+    datekey = now.strftime('%Y%m%d')
+    ampm = 'a.m.' if now.hour < 12 else 'p.m.'
+    time_str = now.strftime('%-I:%M') + ' ' + ampm + ' MDT'
+    date_str = now.strftime('%Y-%m-%d')
+
+    print(f"\nAlberta: fetching OData API...")
+    base = 'https://data.environment.alberta.ca/EDWServices/aqhi/odata/'
+    url  = (f"{base}StationMeasurements?"
+            f"$filter=ParameterKey eq 62 and DateKey eq {datekey}"
+            f"&$select=StationName,StationKey,MeasurementValue,HourKey"
+            f"&$orderby=HourKey desc&$top=2000")
+
+    all_rows = []
+    skip = 0
+    while True:
+        try:
+            r = requests.get(url + f'&$skip={skip}', timeout=30)
+            data = r.json().get('value', [])
+            if not data: break
+            all_rows.extend(data)
+            if len(data) < 200: break
+            skip += 200
+        except:
+            break
+
+    if not all_rows:
+        print("  Alberta: no data")
+        return None
+
+    # Aggregate by station
+    from collections import defaultdict
+    station_data = defaultdict(list)
+    station_names = {}
+    for row in all_rows:
+        v = row.get('MeasurementValue')
+        if v is not None and 0 <= float(v) <= MAX_PM25:
+            key = str(row.get('StationKey',''))
+            station_data[key].append(float(v))
+            station_names[key] = str(row.get('StationName',''))
+
+    stations = []
+    for key, vals in station_data.items():
+        if len(vals) >= MIN_HOURS:
+            stations.append({'name': station_names[key],
+                             'sid':  key,
+                             'mean': round(sum(vals)/len(vals),1),
+                             'max':  round(max(vals),1),
+                             'hrs':  len(vals)})
+    stations.sort(key=lambda x: -x['mean'])
+    print(f"  Alberta: {len(stations)} stations reporting")
+    return {'date':date_str,'time':time_str,
+            'n_stations':len(stations),'stations':stations}
+
+
+# ── Update index.html ────────────────────────────────────────────────────────────
+
+def update_html(on_data, ab_data, bc_data):
+    try:
+        with open('index.html','r',encoding='utf-8') as f:
             html = f.read()
     except FileNotFoundError:
-        print("ERROR: index.html not found — run from repo root")
-        sys.exit(1)
+        print("ERROR: index.html not found"); sys.exit(1)
 
-    n     = data['n_stations']
-    d     = data['date']
-    t     = data['time']
-    # Format date for display e.g. "July 15, 2026"
-    dt    = datetime.strptime(d, '%Y-%m-%d')
-    d_fmt = dt.strftime('%B %-d, %Y')
+    # Update DATA (Ontario)
+    dj = json.dumps(on_data)
+    html = re.sub(r'const DATA\s*=\s*\{[^;]+\};',
+                  lambda m,_d=dj: f'const DATA = {_d};',
+                  html, flags=re.DOTALL)
 
-    # Replace DATA object
-    data_json = json.dumps(data)
-    html = re.sub(
-        r'const DATA\s*=\s*\{[^;]+\};',
-        lambda m, _d=data_json: f'const DATA = {_d};',
-        html,
-        flags=re.DOTALL
-    )
+    # Update DATA_AB
+    if ab_data:
+        dj_ab = json.dumps(ab_data)
+        html = re.sub(r'const DATA_AB\s*=\s*\{[^;]+\};',
+                      lambda m,_d=dj_ab: f'const DATA_AB = {_d};',
+                      html, flags=re.DOTALL)
 
-    # Update meta date
-    html = re.sub(
-        r'<span>[A-Z][a-z]+ \d+, \d{4}</span>',
-        f'<span>{d_fmt}</span>',
-        html
-    )
+    # Update DATA_BC
+    if bc_data:
+        dj_bc = json.dumps(bc_data)
+        if 'const DATA_BC' in html:
+            html = re.sub(r'const DATA_BC\s*=\s*\{[^;]+\};',
+                          lambda m,_d=dj_bc: f'const DATA_BC = {_d};',
+                          html, flags=re.DOTALL)
+        else:
+            # Insert after DATA_AB
+            html = html.replace(
+                'const SCALARS=',
+                f'const DATA_BC = {dj_bc};\n\nconst SCALARS='
+            )
 
-    # Update meta time
-    t_escaped = t
-    html = re.sub(
-        r'<span>Updated [^<]+</span>',
-        lambda m, _t=t_escaped: f'<span>Updated {_t}</span>',
-        html
-    )
+    # Update meta
+    d_fmt = datetime.strptime(on_data['date'],'%Y-%m-%d').strftime('%B %-d, %Y')
+    html = re.sub(r'<span id="meta-date">[^<]+</span>',
+                  f'<span id="meta-date">{d_fmt}</span>', html)
+    html = re.sub(r'<span id="meta-updated">[^<]+</span>',
+                  lambda m,_t=on_data['time']:
+                  f'<span id="meta-updated">Updated {_t}</span>', html)
+    html = re.sub(r'<span id="meta-stations">[^<]+</span>',
+                  f'<span id="meta-stations">'
+                  f'{on_data["n_stations"]} of 43 stations reporting</span>', html)
 
-    # Update station count text
-    html = re.sub(
-        r'<span>\d+ of 43 stations reporting</span>',
-        f'<span>{n} of 43 stations reporting</span>',
-        html
-    )
-
-    # Update hours of observations
-    if data['stations']:
-        max_hrs = max(s['hrs'] for s in data['stations'])
-        html = re.sub(
-            r'<span>\d+ hours? of observations</span>',
-            f'<span>{max_hrs} hours of observations</span>',
-            html
+    # Add BC to PROV config if not there
+    if "'BC'" not in html and '"BC"' not in html:
+        html = html.replace(
+            "AB:{pop_M:4.9, label:'Alberta', tz:'MDT',n_total:56}",
+            "AB:{pop_M:4.9, label:'Alberta', tz:'MDT',n_total:56},\n  BC:{pop_M:5.6, label:'British Columbia', tz:'PDT',n_total:62}"
         )
 
-    with open('index.html', 'w', encoding='utf-8') as f:
+    with open('index.html','w',encoding='utf-8') as f:
         f.write(html)
+    print(f"\nindex.html updated — ON:{on_data['n_stations']} AB:{ab_data['n_stations'] if ab_data else 0} BC:{bc_data['n_stations'] if bc_data else 0}")
 
-    print(f"index.html updated: {n}/43 stations, {d_fmt}, {t}")
 
-
-# ── Main ────────────────────────────────────────────────────────────────────────
+# ── Main ─────────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    data = fetch_all()
-    if not data['stations']:
-        print("No station data retrieved — index.html not updated")
-        sys.exit(1)
-    update_html(data)
+    on_data = fetch_ontario()
+    ab_data = fetch_alberta()
+    bc_data = fetch_bc()
+
+    if not on_data or not on_data['stations']:
+        print("No Ontario data — aborting"); sys.exit(1)
+
+    update_html(on_data, ab_data, bc_data)
     print("Done.")
