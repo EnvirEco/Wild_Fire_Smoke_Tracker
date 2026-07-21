@@ -150,33 +150,73 @@ def fetch_bc():
         print(f"  BC fetch failed: {e}")
         return None
 
-    import pandas as pd
-    df = pd.read_csv(io.StringIO(r.text), low_memory=False)
-    df['datetime'] = pd.to_datetime(df['DATE_PST'], errors='coerce')
-    df['date_only'] = df['datetime'].dt.date
-    today_df = df[df['date_only'] == today].copy()
-    today_df['RAW_VALUE'] = pd.to_numeric(today_df['RAW_VALUE'], errors='coerce')
-    today_df = today_df[today_df['RAW_VALUE'].between(0, MAX_PM25)]
+    import csv
+    from collections import defaultdict
+    date_str_today = today.strftime('%Y-%m-%d')
+    reader = csv.DictReader(io.StringIO(r.text))
+    station_vals  = defaultdict(list)
+    station_maxes = defaultdict(float)
+    station_emsid = {}
 
-    # Exclude industrial point sources
-    mask = today_df['STATION_NAME'].str.contains(
-        '|'.join(BC_EXCLUDE), case=False, na=False)
-    today_df = today_df[~mask]
+    for row in reader:
+        dt_raw = row.get('DATE_PST','')
+        if not dt_raw.startswith(date_str_today):
+            continue
+        name = row.get('STATION_NAME','').strip()
+        ems  = row.get('EMS_ID','').strip()
+        # Exclude industrial
+        if any(ex.lower() in name.lower() for ex in BC_EXCLUDE):
+            continue
+        try:
+            v = float(row.get('RAW_VALUE',''))
+            if not (0 <= v <= MAX_PM25):
+                continue
+        except (ValueError, TypeError):
+            continue
+        station_vals[name].append(v)
+        if v > station_maxes[name]:
+            station_maxes[name] = v
+        station_emsid[name] = ems
 
-    daily = (today_df.groupby(['STATION_NAME','EMS_ID'])
-             .agg(mean=('RAW_VALUE','mean'),
-                  max=('RAW_VALUE','max'),
-                  hrs=('RAW_VALUE','count'))
-             .reset_index())
-    daily = daily[daily['hrs'] >= MIN_HOURS]
+    # If fewer than 10 stations have 3+ hours, fall back to yesterday
+    BC_MIN = 3
+    qualifying = {k:v for k,v in station_vals.items() if len(v) >= BC_MIN}
+    if len(qualifying) < 10:
+        print(f"  BC: only {len(qualifying)} stations today — using yesterday")
+        from datetime import timedelta as td
+        yesterday = (today - td(days=1)).strftime('%Y-%m-%d')
+        r3 = requests.get(url, timeout=60)
+        reader3 = csv.DictReader(io.StringIO(r3.text))
+        station_vals2  = defaultdict(list)
+        station_maxes2 = defaultdict(float)
+        station_emsid2 = {}
+        for row in reader3:
+            if not row.get('DATE_PST','').startswith(yesterday): continue
+            name = row.get('STATION_NAME','').strip()
+            ems  = row.get('EMS_ID','').strip()
+            if any(ex.lower() in name.lower() for ex in BC_EXCLUDE): continue
+            try:
+                v = float(row.get('RAW_VALUE',''))
+                if not (0 <= v <= MAX_PM25): continue
+            except: continue
+            station_vals2[name].append(v)
+            if v > station_maxes2[name]: station_maxes2[name] = v
+            station_emsid2[name] = ems
+        station_vals  = station_vals2
+        station_maxes = station_maxes2
+        station_emsid = station_emsid2
+        BC_MIN = MIN_HOURS
+        date_str = yesterday
+        time_str = 'prior day data'
 
     stations = []
-    for _, row in daily.sort_values('mean', ascending=False).iterrows():
-        stations.append({'name': str(row['STATION_NAME']),
-                         'sid':  str(row['EMS_ID']),
-                         'mean': round(float(row['mean']),1),
-                         'max':  round(float(row['max']),1),
-                         'hrs':  int(row['hrs'])})
+    for name, vals in station_vals.items():
+        if len(vals) >= BC_MIN:
+            stations.append({'name': name,
+                             'sid':  station_emsid.get(name,''),
+                             'mean': round(sum(vals)/len(vals),1),
+                             'max':  round(station_maxes[name],1),
+                             'hrs':  len(vals)})
 
     print(f"  BC: {len(stations)} stations reporting")
     return {'date':date_str,'time':time_str,
@@ -197,8 +237,7 @@ def fetch_alberta():
     base = 'https://data.environment.alberta.ca/EDWServices/aqhi/odata/'
     url  = (f"{base}StationMeasurements?"
             f"$filter=ParameterKey eq 62 and DateKey eq {datekey}"
-            f"&$select=StationName,StationKey,MeasurementValue,HourKey"
-            f"&$orderby=HourKey desc&$top=2000")
+            f"&$top=2000")
 
     all_rows = []
     skip = 0
@@ -222,7 +261,7 @@ def fetch_alberta():
     station_data = defaultdict(list)
     station_names = {}
     for row in all_rows:
-        v = row.get('MeasurementValue')
+        v = row.get('Value')
         if v is not None and 0 <= float(v) <= MAX_PM25:
             key = str(row.get('StationKey',''))
             station_data[key].append(float(v))
